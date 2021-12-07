@@ -1,121 +1,117 @@
 import * as THREE from "three";
 import ReactDOM from "react-dom";
-import React, { useRef, useMemo, useState, useEffect } from "react";
-import { Canvas, useFrame, useThree, extend } from "react-three-fiber";
-import niceColors from "nice-color-palettes";
-import Effects from "./Effects";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-extend({ OrbitControls });
+import React, { Suspense, useCallback, useRef, useMemo } from "react";
+import { Canvas, useFrame } from "react-three-fiber";
+import "./styles.css";
 
-const CameraControls = () => {
-  // Get a reference to the Three.js Camera, and the canvas html element.
-  // We need these to setup the OrbitControls class.
-  // https://threejs.org/docs/#examples/en/controls/OrbitControls
-
-  const {
-    camera,
-    gl: { domElement },
-  } = useThree();
-
-  // Ref to the controls, so that we can update them on every frame using useFrame
-  const controls = useRef();
-  useFrame((state) => controls.current.update());
-  return (
-    <orbitControls
-      ref={controls}
-      args={[camera, domElement]}
-      enableZoom={true}
-    />
-  );
+const Distance = (x1, x2, y1, y2) => {
+  const a = x1 - x2;
+  const b = y1 - y2;
+  const distance = a * a + b * b;
+  return distance;
 };
 
-const tempObject = new THREE.Object3D();
-const tempColor = new THREE.Color();
-const data = Array.from({ length: 1000 }, () => ({
-  color: niceColors[17][Math.floor(Math.random() * 5)],
-  scale: 1,
-}));
+function Swarm({ count, mouse }) {
+  const mesh = useRef();
+  const dummy = useMemo(() => new THREE.Object3D(), []);
 
-function Boxes() {
-  const [hovered, set] = useState();
-  const colorArray = useMemo(
-    () =>
-      Float32Array.from(
-        new Array(1000)
-          .fill()
-          .flatMap((_, i) => tempColor.set(data[i].color).toArray())
-      ),
-    []
-  );
-  const meshRef = useRef();
-  const prevRef = useRef();
-  useEffect(() => void (prevRef.current = hovered), [hovered]);
+  const particles = useMemo(() => {
+    const temp = [];
+    for (let i = 0; i < count; i++) {
+      const t = Math.random() * 1;
+      const factor = 1;
+      const speed = 0;
+      const xFactor = -20 + Math.random() * 30;
+      const yFactor = -20 + Math.random() * 30;
+      const zFactor = -20 + Math.random() * 30;
+      temp.push({ t, factor, speed, xFactor, yFactor, zFactor, mx: 0, my: 0 });
+    }
+    return temp;
+  }, [count]);
+
   useFrame((state) => {
-    const time = state.clock.getElapsedTime();
-    let i = 0;
-    for (let x = 0; x < 10; x++)
-      for (let y = 0; y < 10; y++)
-        for (let z = 0; z < 10; z++) {
-          const id = i++;
-          tempObject.position.set(5 - x, 5 - y, 5 - z);
-          tempObject.rotation.z = tempObject.rotation.y * 2;
-          if (hovered !== prevRef.Current) {
-            tempColor
-              .set(id === hovered ? "white" : data[id].color)
-              .toArray(colorArray, id * 3);
+    particles.forEach((particle, i) => {
+      let { t, factor, speed, xFactor, yFactor, zFactor } = particle;
+      t = particle.t += speed / 5;
+      const a = Math.cos(t) + Math.sin(t * 1) / 10;
+      const b = Math.sin(t) + Math.cos(t * 2) / 10;
 
-            meshRef.current.geometry.attributes.color.needsUpdate = true;
-          }
-          const scale = (data[id].scale = THREE.MathUtils.lerp(
-            data[id].scale,
-            id === hovered ? 3 : 1,
-            0.1
-          ));
+      particle.mx += (mouse.current[0] - particle.mx) * 0.01;
+      particle.my += (mouse.current[1] - particle.my) * 0.01;
+      dummy.position.set(
+        (particle.mx / 10) * a +
+          xFactor +
+          Math.cos((t / 10) * factor) +
+          (Math.sin(t * 1) * factor) / 10,
+        (particle.my / 10) * b +
+          yFactor +
+          Math.sin((t / 10) * factor) +
+          (Math.cos(t * 2) * factor) / 10,
+        (particle.my / 10) * b +
+          zFactor +
+          Math.cos((t / 10) * factor) +
+          (Math.sin(t * 3) * factor) / 10
+      );
+      dummy.updateMatrix();
+      mesh.current.setMatrixAt(i, dummy.matrix);
+      mesh.current.instanceMatrix.needsUpdate = true;
+      if (
+        Distance(
+          dummy.position.x,
+          mouse.current[0],
+          dummy.position.y,
+          mouse.current[1]
+        ) <= 10000
+        //Math.round(dummy.position.x) === Math.round(mouse.current[0]) ||
+        //Math.round(dummy.position.y) === Math.round(mouse.current[1])
+      ) {
+        dummy.scale.set(3, 3, 3);
+        mesh.current.setMatrixAt(i, dummy.matrix);
+      } else {
+        dummy.scale.set(1, 1, 1);
+        mesh.current.setMatrixAt(i, dummy.matrix);
+      }
+    });
 
-          if (!id) {
-            const rotation = (data[id].rotation.y =
-              Math.sin(x / 4 + time) +
-              Math.sin(y / 4 + time) +
-              Math.sin(z / 4 + time));
-            tempObject.rotation.y.setScalar(rotation);
-            tempObject.rotation.z = tempObject.rotation.y * 2;
-          }
-          tempObject.scale.setScalar(scale);
-          tempObject.updateMatrix();
-          meshRef.current.setMatrixAt(id, tempObject.matrix);
-        }
-    meshRef.current.instanceMatrix.needsUpdate = true;
+    mesh.current.instanceMatrix.needsUpdate = true;
   });
+
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[null, null, 1000]}
-      onPointerMove={(e) => set(e.instanceId)}
-      onPointerOut={(e) => set(undefined)}
-    >
-      <boxGeometry args={[0.6, 0.6, 0.6]}>
-        <instancedBufferAttribute
-          attachObject={["attributes", "color"]}
-          args={[colorArray, 3]}
-        />
-      </boxGeometry>
-      <meshPhongMaterial vertexColors={THREE.VertexColors} />
-    </instancedMesh>
+    <>
+      <instancedMesh ref={mesh} args={[null, null, count]}>
+        <boxBufferGeometry attach="geometry" args={[1, 1, 1]} />
+        <meshPhongMaterial attach="material" color="#7f7f7f" />
+      </instancedMesh>
+    </>
   );
 }
 
-ReactDOM.render(
-  <Canvas
-    linear
-    gl={{ antialias: false, alpha: false }}
-    camera={{ position: [0, 0, 15] }}
-    onCreated={({ gl }) => gl.setClearColor("#f0f0f0")}
-  >
-    <CameraControls />
-    <ambientLight />
-    <pointLight position={[150, 150, 150]} intensity={0.55} />
-    <Boxes />
-    <Effects />
-  </Canvas>,
-  document.getElementById("root")
-);
+function App() {
+  const mouse = useRef([0, 0]);
+  const onMouseMove = useCallback(
+    ({ clientX: x, clientY: y }) =>
+      (mouse.current = [x - window.innerWidth / 2, y - window.innerHeight / 2]),
+    []
+  );
+  return (
+    <div style={{ width: "100%", height: "100%" }} onMouseMove={onMouseMove}>
+      <Canvas
+        gl={{ alpha: false, antialias: false, logarithmicDepthBuffer: false }}
+        camera={{ fov: 75, position: [0, 0, 70] }}
+        onCreated={({ gl }) => {
+          gl.setClearColor("white");
+          gl.toneMapping = THREE.Uncharted2ToneMapping;
+          gl.outputEncoding = THREE.sRGBEncoding;
+        }}
+      >
+        <ambientLight intensity={1.25} />
+        <pointLight position={[100, 100, 100]} />
+        <pointLight position={[-100, -100, -100]} color="lightpink" />
+        <Swarm mouse={mouse} count={300} />
+        <Suspense fallback={null}></Suspense>
+      </Canvas>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById("root"));
